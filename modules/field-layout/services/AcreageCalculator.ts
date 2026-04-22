@@ -79,4 +79,21 @@ export class AcreageCalculator {
       return `${sqFeet.toFixed(0)} sq ft`
     }
   }
+
+  /**
+   * Format hectares for display
+   * @param hectares - Area in hectares
+   * @returns Formatted string with value and unit
+   */
+  static formatHectares(hectares: number): string {
+    if (hectares >= 100) {
+      const squareKm = hectares / 100
+      return `${squareKm.toFixed(2)} km²`
+    } else if (hectares >= 1) {
+      return `${hectares.toFixed(2)} ha`
+    } else {
+      const squareMeters = hectares * 10000
+      return `${squareMeters.toFixed(0)} m²`
+    }
+  }
 }

@@ -13,6 +13,66 @@ description: "Define coding standards and principles for Farm-map-Dev"
 - **Interface Segregation Principle**: Clients should not depend on interfaces they don't use
 - **Dependency Inversion Principle**: Depend on abstractions, not concrete implementations
 
+### Design Patterns
+
+#### Strategy Pattern (Lean Implementation)
+**Use When**: Multiple algorithms or behaviors need to be swapped at runtime without changing client code.
+
+**Core Principle**: Encapsulate algorithmic variations in separate implementations of a common interface.
+
+**Lean Example** (5 lines per strategy):
+```typescript
+// Define strategy interface
+interface IAreaCalculationStrategy {
+  calculate(coords: [number, number][]): number
+}
+
+// Concrete strategies
+class HaversineStrategy implements IAreaCalculationStrategy {
+  calculate(coords: [number, number][]): number {
+    // Haversine formula implementation
+  }
+}
+
+class ShoelaceStrategy implements IAreaCalculationStrategy {
+  calculate(coords: [number, number][]): number {
+    // Shoelace formula implementation
+  }
+}
+
+// Context: Use strategy without knowing implementation
+class AreaCalculator {
+  constructor(private strategy: IAreaCalculationStrategy) {}
+  computeArea(coords: [number, number][]): number {
+    return this.strategy.calculate(coords)
+  }
+}
+
+// Usage: Easy to test & swap
+const calculator = new AreaCalculator(new HaversineStrategy())
+```
+
+**Benefits for Farm-map-Dev**:
+- ✅ Area calculation: Haversine vs Shoelace formulas
+- ✅ Polygon validation: Different validation rules per geometry type
+- ✅ Export formats: PDF, CSV, JSON exporters
+- ✅ Testable: Mock strategies in unit tests
+- ✅ Lean: No if/else branching, no type checking
+
+**Testing Pattern**:
+```typescript
+it('calculates area correctly with Haversine', () => {
+  const strategy = new HaversineStrategy()
+  expect(strategy.calculate(testCoords)).toBe(expectedAcreage)
+})
+
+it('swaps strategies at runtime', () => {
+  const calc1 = new AreaCalculator(new HaversineStrategy())
+  const calc2 = new AreaCalculator(new ShoelaceStrategy())
+  // Both valid, just different algorithms
+})
+```
+
 ### DRY (Don't Repeat Yourself)
 - Avoid code duplication
 - Extract common logic into reusable functions or components

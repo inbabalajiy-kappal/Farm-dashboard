@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { MapFactory } from '../../../core/map/MapFactory'
+import { AcreageCalculator } from '../services/AcreageCalculator'
 
 import VectorSource from 'ol/source/Vector'
 import VectorLayer from 'ol/layer/Vector'
@@ -13,6 +14,7 @@ import Style from 'ol/style/Style'
 import Text from 'ol/style/Text'
 import Fill from 'ol/style/Fill'
 import Stroke from 'ol/style/Stroke'
+import { createField, getFields } from "@/lib/api";
 
 export function FieldMap() {
   const mapElementRef = useRef<HTMLDivElement>(null)
@@ -26,7 +28,10 @@ export function FieldMap() {
 
   const [showPopup, setShowPopup] = useState(false)
   const [ownerName, setOwnerName] = useState('')
+  const [contactDetails, setContactDetails] = useState('')
+  const [address, setAddress] = useState('')
   const [selectedFeature, setSelectedFeature] = useState<any>(null)
+  const [hectares, setHectares] = useState<number | null>(null)
 
   useEffect(() => {
     initializeMap()
@@ -54,10 +59,15 @@ export function FieldMap() {
       map.forEachFeatureAtPixel(event.pixel, (feature) => {
         setSelectedFeature(feature)
 
+        // Populate fields from feature
         const text = feature.getStyle()?.getText()?.getText()
         if (text) {
           setOwnerName(text.split('\n')[0])
         }
+        
+        setContactDetails(feature.get('contactDetails') || '')
+        setAddress(feature.get('address') || '')
+        setHectares(feature.get('hectares') || null)
 
         setShowPopup(true)
       })
@@ -98,10 +108,22 @@ export function FieldMap() {
       
       const coords = feature.getGeometry().getCoordinates()[0]
       const acres = calcArea(coords)
+      
+      // ✅ Calculate exact hectares using AcreageCalculator
+      const coordinates3D = feature.getGeometry().getCoordinates()
+      const acreageData = AcreageCalculator.calculate(coordinates3D)
+      const exactHectares = acreageData.hectares
+      
       feature.set('acres', acres)
+      feature.set('hectares', exactHectares)
+      feature.set('contactDetails', '') // Initialize empty
+      feature.set('address', '') // Initialize empty
 
       setSelectedFeature(feature)
+      setHectares(exactHectares)
       setOwnerName('')
+      setContactDetails('')
+      setAddress('')
       setShowPopup(true)
     })
 
@@ -121,15 +143,42 @@ export function FieldMap() {
       }),
     })
 
-  // ✅ SAVE / EDIT OWNER
-  const handleSave = () => {
-    if (!selectedFeature || !ownerName) return
+  // ✅ SAVE / EDIT OWNER - Save to backend with all details
+  const handleSave = async () => {
+    if (!selectedFeature || !ownerName || !contactDetails || !address) return
 
     const acres = selectedFeature.get('acres')
-    selectedFeature.setStyle(createOwnerStyle(ownerName, acres))
+    const exactHectares = selectedFeature.get('hectares')
+    const coordinates = selectedFeature.getGeometry().getCoordinates()
+    const featureId = String(selectedFeature.getId())
 
-    setShowPopup(false)
-    setOwnerName('')
+    // ✅ Store on feature for local reference
+    selectedFeature.set('contactDetails', contactDetails)
+    selectedFeature.set('address', address)
+
+    // ✅ Prepare field data for backend
+    const fieldData = {
+      id: featureId,
+      coordinates: coordinates,
+      ownerName: ownerName,
+      contactDetails: contactDetails,
+      address: address,
+      areaHectares: exactHectares,
+    }
+
+    try {
+      // ✅ Save to backend
+      await createField(fieldData)
+      
+      selectedFeature.setStyle(createOwnerStyle(ownerName, acres))
+      setShowPopup(false)
+      setOwnerName('')
+      setContactDetails('')
+      setAddress('')
+    } catch (error) {
+      console.error('Error saving field:', error)
+      alert('Failed to save field details')
+    }
   }
 
   // ✅ DELETE
@@ -177,6 +226,12 @@ export function FieldMap() {
       const coords = feature.getGeometry().getCoordinates()[0]
       const acres = calcArea(coords)
       feature.set('acres', acres)
+      
+      // ✅ Recalculate exact hectares on polygon edit
+      const coordinates3D = feature.getGeometry().getCoordinates()
+      const acreageData = AcreageCalculator.calculate(coordinates3D)
+      const exactHectares = acreageData.hectares
+      feature.set('hectares', exactHectares)
       
       const owner = feature.getStyle()?.getText()?.getText()?.split('\n')[0]
       if (owner) {
@@ -228,13 +283,43 @@ export function FieldMap() {
       {showPopup && (
         <div style={overlayStyle}>
           <div style={modalStyle}>
-            <h3>Map Owner</h3>
+            <h3>Field Details</h3>
 
+            {/* ✅ Display exact hectare calculation */}
+            {hectares !== null && (
+              <div style={hectareDisplayStyle}>
+                <strong>Exact Hectares:</strong> {hectares.toFixed(2)} ha
+              </div>
+            )}
+
+            {/* ✅ Owner Name */}
             <input
               value={ownerName}
               onChange={(e) => setOwnerName(e.target.value)}
-              placeholder="Enter owner name"
-              style={{ padding: '8px', width: '100%' }}
+              placeholder="Owner name"
+              style={{ padding: '8px', width: '100%', marginBottom: '10px' }}
+            />
+
+            {/* ✅ Contact Details */}
+            <input
+              value={contactDetails}
+              onChange={(e) => setContactDetails(e.target.value)}
+              placeholder="Contact (phone/email)"
+              style={{ padding: '8px', width: '100%', marginBottom: '10px' }}
+            />
+
+            {/* ✅ Address */}
+            <textarea
+              value={address}
+              onChange={(e) => setAddress(e.target.value)}
+              placeholder="Address"
+              style={{ 
+                padding: '8px', 
+                width: '100%', 
+                minHeight: '60px',
+                marginBottom: '10px',
+                resize: 'vertical'
+              }}
             />
 
             <div style={{ marginTop: '15px' }}>
@@ -277,7 +362,9 @@ const modalStyle = {
   background: '#fff',
   padding: '20px',
   borderRadius: '10px',
-  width: '300px',
+  width: '400px',
+  maxHeight: '80vh',
+  overflowY: 'auto' as const,
 }
 
 const saveBtn = {
@@ -296,4 +383,15 @@ const deleteBtn = {
 
 const cancelBtn = {
   padding: '8px 16px',
+}
+
+// ✅ Hectare display styling
+const hectareDisplayStyle = {
+  background: '#e8f5e9',
+  border: '1px solid #4caf50',
+  borderRadius: '4px',
+  padding: '10px',
+  marginBottom: '12px',
+  color: '#2e7d32',
+  fontWeight: '500',
 }
